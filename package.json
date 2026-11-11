@@ -1,6 +1,6 @@
 {
   "name": "dsh-gpt-exec-bridge",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Treats empty provider/model strings as omitted so subagent route discovery and delegation keep working",
   "license": "MIT",
@@ -12,7 +12,13 @@
   "bugs": {
     "url": "https://github.com/fqscfqj/dsh-gpt-exec-bridge/issues"
   },
-  "keywords": ["deepseek-harness", "dsh", "gpt", "subagent", "plugin"],
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "gpt",
+    "subagent",
+    "plugin"
+  ],
   "main": "./index.js",
   "icon": "./icon.svg",
   "exports": {

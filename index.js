@@ -13,9 +13,9 @@
  *   whitespace-only value for the configured fields before the tool sees it;
  * - when a route pair loses its `provider`, the dependent `model` and
  *   `reasoning_effort` are dropped too, so a half-filled route degrades to
- *   "inherit the parent" instead of failing a pairing check;
- * - it appends one sentence to those parameters' descriptions telling the model
- *   to omit a field rather than send an empty string.
+ *   "inherit the parent" instead of failing a pairing check.
+ *
+ * Parameter descriptions and model-facing prompts are left unchanged.
  *
  * The wrap is applied to the exact definitions the registry holds, so tool
  * identity, prompt sections, presentation, and activation conditions keep
@@ -28,10 +28,6 @@ export const name = 'gpt-exec-bridge'
 
 /** The tool registry is the only hard dependency; agents are read optionally. */
 export const inject = ['tools']
-
-/** Sentence appended to each affected parameter description. */
-const FIELD_GUIDANCE =
-  'Omit this field entirely when you do not want to set it; never send an empty string.'
 
 /** Route fields that only make sense together with `provider`. */
 const ROUTE_DEPENDENTS = ['model', 'reasoning_effort']
@@ -110,39 +106,6 @@ function withoutOmittedFields(args, fields) {
 
 /** Shared ownership keeps concurrent bridge instances from undoing each other. */
 const definitionRepairs = new WeakMap()
-const parameterAnnotations = new WeakMap()
-
-function refreshAnnotation(property, annotation) {
-  if (property.description === annotation.applied) return
-  annotation.previous = property.description
-  annotation.applied = undefined
-  if (typeof property.description !== 'string' || property.description.includes(FIELD_GUIDANCE)) return
-  annotation.applied = property.description.length === 0
-    ? FIELD_GUIDANCE
-    : `${property.description} ${FIELD_GUIDANCE}`
-  property.description = annotation.applied
-}
-
-function acquireAnnotation(property, owner) {
-  let annotation = parameterAnnotations.get(property)
-  if (!annotation) {
-    annotation = { owners: new Set(), previous: undefined, applied: undefined }
-    parameterAnnotations.set(property, annotation)
-  }
-  annotation.owners.add(owner)
-  refreshAnnotation(property, annotation)
-}
-
-function releaseAnnotation(property, owner) {
-  const annotation = parameterAnnotations.get(property)
-  if (!annotation) return
-  annotation.owners.delete(owner)
-  if (annotation.owners.size > 0) return
-  if (annotation.applied !== undefined && property.description === annotation.applied) {
-    property.description = annotation.previous
-  }
-  parameterAnnotations.delete(property)
-}
 
 function refreshRepair(state) {
   const { definition } = state
@@ -161,20 +124,6 @@ function refreshRepair(state) {
       definition.execute = layer.wrapper
     }
   }
-
-  const properties = definition.parameters?.properties
-  const wanted = new Set()
-  if (state.layer && properties !== null && typeof properties === 'object') {
-    for (const field of state.fields) {
-      const property = Object.hasOwn(properties, field) ? properties[field] : undefined
-      if (property !== null && typeof property === 'object') wanted.add(property)
-    }
-  }
-  for (const property of state.properties) {
-    if (!wanted.has(property)) releaseAnnotation(property, state)
-  }
-  for (const property of wanted) acquireAnnotation(property, state)
-  state.properties = wanted
 }
 
 /** Return a lease on a shared repair, refreshed after registry changes. */
@@ -182,7 +131,7 @@ function repairDefinition(definition, fields) {
   let state = definitionRepairs.get(definition)
   if (!state) {
     if (typeof definition.execute !== 'function') return undefined
-    state = { definition, owners: new Map(), fields: [], properties: new Set(), layer: undefined }
+    state = { definition, owners: new Map(), fields: [], layer: undefined }
     definitionRepairs.set(definition, state)
   }
   const owner = {}
@@ -203,8 +152,6 @@ function repairDefinition(definition, fields) {
         state.layer.active = false
         if (definition.execute === state.layer.wrapper) definition.execute = state.layer.execute
       }
-      for (const property of state.properties) releaseAnnotation(property, state)
-      state.properties.clear()
       state.fields = []
       definitionRepairs.delete(definition)
     },

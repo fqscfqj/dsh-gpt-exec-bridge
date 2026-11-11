@@ -23,7 +23,7 @@ test('real Cordis context loads, handles registry events, restarts and disposes 
   tools.set('subagent', tool)
   ctx.emit('tools/change')
   assert.deepEqual(tool.execute({ provider: '', model: '' }), {})
-  assert.match(tool.parameters.properties.provider.description, /never send an empty string/)
+  assert.equal(tool.parameters.properties.provider.description, 'Provider')
 
   await fiber.restart()
   assert.deepEqual(tool.execute({ provider: '', model: '' }), {})

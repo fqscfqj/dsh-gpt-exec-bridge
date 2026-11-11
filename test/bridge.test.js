@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { apply, inject, name } from '../index.js'
 
-const guidance = 'Omit this field entirely when you do not want to set it; never send an empty string.'
 const routeFields = ['provider', 'model', 'reasoning_effort', 'agent_preset', 'cwd']
 
 function definition(execute = (args) => args) {
@@ -153,28 +152,43 @@ test('custom and duplicate rules merge fields without claiming others', (t) => {
   assert.deepEqual(tool.execute({ cwd: '', agent_preset: '', provider: '', model: 'm' }), { provider: '', model: 'm' })
 })
 
-test('repeated events do not stack wrappers or duplicate annotations', (t) => {
+test('repeated events do not stack wrappers or change descriptions', (t) => {
   const tool = definition()
   const original = tool.execute
   const h = harness(t, [['subagent', tool]])
   const wrapped = tool.execute
   for (let i = 0; i < 10; i++) h.emit('tools/change')
   assert.equal(tool.execute, wrapped)
-  assert.equal(tool.parameters.properties.provider.description, `provider ${guidance}`)
+  assert.equal(tool.parameters.properties.provider.description, 'provider')
   h.dispose()
   assert.equal(tool.execute, original)
   assert.equal(tool.parameters.properties.provider.description, 'provider')
 })
 
-test('keeps pre-existing guidance and handles missing or empty descriptions', (t) => {
+test('preserves parameter schemas and model-facing text throughout the lifecycle', (t) => {
   const tool = definition()
-  tool.parameters.properties.provider.description = guidance
+  tool.name = 'subagent'
+  tool.description = 'Delegate a task'
+  tool.parameters.properties.provider.description = 'Existing provider guidance'
   tool.parameters.properties.model.description = ''
   delete tool.parameters.properties.cwd.description
-  harness(t, [['subagent', tool]]).dispose()
-  assert.equal(tool.parameters.properties.provider.description, guidance)
-  assert.equal(tool.parameters.properties.model.description, '')
-  assert.equal(Object.hasOwn(tool.parameters.properties.cwd, 'description'), false)
+  for (const property of Object.values(tool.parameters.properties)) Object.freeze(property)
+  Object.freeze(tool.parameters.properties)
+  Object.freeze(tool.parameters)
+  const schema = tool.parameters
+  const before = JSON.stringify({ name: tool.name, description: tool.description, parameters: schema })
+  const assertUnchanged = () => {
+    assert.equal(tool.parameters, schema)
+    assert.equal(JSON.stringify({ name: tool.name, description: tool.description, parameters: tool.parameters }), before)
+  }
+  const h = harness(t, [['subagent', tool]])
+  assertUnchanged()
+  assert.deepEqual(tool.execute({ provider: '', model: '', cwd: '' }), {})
+  assertUnchanged()
+  h.emit('tools/change')
+  assertUnchanged()
+  h.dispose()
+  assertUnchanged()
 })
 
 test('late registration works without the optional agents service', (t) => {
@@ -260,18 +274,22 @@ test('reconciliation preserves external wrappers and disables superseded bridge 
   assert.deepEqual(tool.execute({ provider: '' }), { provider: '', cwd: '' })
 })
 
-test('schema replacement restores old properties and annotates current properties', (t) => {
+test('schema replacement and external description updates are left untouched', (t) => {
   const tool = definition()
   const previous = tool.parameters
   const h = harness(t, [['subagent', tool]])
   tool.parameters = definition().parameters
+  const current = tool.parameters
   h.emit('tools/change')
+  assert.equal(tool.parameters, current)
   assert.equal(previous.properties.provider.description, 'provider')
-  assert.equal(tool.parameters.properties.provider.description, `provider ${guidance}`)
+  assert.equal(tool.parameters.properties.provider.description, 'provider')
   tool.parameters.properties.provider.description = 'updated'
   h.emit('tools/change')
-  assert.equal(tool.parameters.properties.provider.description, `updated ${guidance}`)
+  assert.equal(tool.parameters.properties.provider.description, 'updated')
+  assert.deepEqual(tool.execute({ provider: '' }), {})
   h.dispose()
+  assert.equal(tool.parameters, current)
   assert.equal(tool.parameters.properties.provider.description, 'updated')
 })
 
@@ -282,7 +300,7 @@ for (const order of [[0, 1], [1, 0]]) {
     const instances = [harness(t, [['subagent', tool]]), harness(t, [['subagent', tool]])]
     instances[order[0]].dispose()
     assert.deepEqual(tool.execute({ provider: '' }), {})
-    assert.equal(tool.parameters.properties.provider.description, `provider ${guidance}`)
+    assert.equal(tool.parameters.properties.provider.description, 'provider')
     instances[order[1]].dispose()
     assert.equal(tool.execute, original)
     assert.equal(tool.parameters.properties.provider.description, 'provider')
@@ -300,14 +318,14 @@ test('overlapping instances retain only remaining owners fields', (t) => {
   b.dispose()
 })
 
-test('shared parameter objects retain annotations until their last definition is released', (t) => {
+test('shared parameter objects remain untouched as definitions are released', (t) => {
   const first = definition()
   const second = definition()
   second.parameters = first.parameters
   const a = harness(t, [['subagent', first]])
   const b = harness(t, [['subagent', second]])
   a.dispose()
-  assert.equal(second.parameters.properties.provider.description, `provider ${guidance}`)
+  assert.equal(second.parameters.properties.provider.description, 'provider')
   b.dispose()
   assert.equal(second.parameters.properties.provider.description, 'provider')
 })

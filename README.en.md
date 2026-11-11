@@ -20,11 +20,8 @@ The plugin repairs live tool definitions in place without replacing the definiti
 
 - Before execution, it removes empty or whitespace-only strings from configured fields, so `{"provider": "", "model": ""}` behaves like `{}` and lists available providers. Configured fields whose values are `null` or `undefined` are also removed.
 - When `provider` is absent, it also removes the dependent fields `model` and `reasoning_effort` covered by the rule. This lets incomplete routes fall back to the tool's default behavior instead of failing dependency checks. Delegation tools then inherit the parent agent's route.
-- It appends the following guidance to the affected model-facing parameter descriptions:
 
-  > Omit this field entirely when you do not want to set it; never send an empty string.
-
-Tool identity, presentation, activation conditions, and prompt sections attached by other plugins remain unchanged.
+The plugin silently cleans arguments at the execution boundary without changing parameter descriptions or adding model-facing guidance. Tool identity, presentation, activation conditions, and prompt sections attached by other plugins remain unchanged.
 
 ## Default Coverage
 
@@ -58,9 +55,9 @@ Only configured fields are cleaned. Valid values are not coerced, and the caller
 
 ## Lifecycle
 
-The bridge reconciles at load time and on `tools/change` and `agent/created`, because preset compositions may mount tools after plugins start. Changes to the same definition's execution implementation or parameter schema are reconciled too. Unregistered definitions are restored and released on the next reconciliation.
+The bridge reconciles at load time and on `tools/change` and `agent/created`, because preset compositions may mount tools after plugins start. Changes to the same definition's execution implementation are reconciled too; parameter schemas are always left untouched. Unregistered definitions are restored and released on the next reconciliation.
 
-Concurrent instances share repairs. When the last instance unloads, implementations and parameter descriptions are restored only if the bridge still owns those slots, preserving updates and wrappers installed by other plugins. A bridge wrapper retained inside another plugin's wrapper becomes a pass-through after unload.
+Concurrent instances share repairs. When the last instance unloads, the execution implementation is restored only if the bridge still owns that slot, preserving updates and wrappers installed by other plugins. A bridge wrapper retained inside another plugin's wrapper becomes a pass-through after unload.
 
 ## Development and Validation
 
@@ -81,6 +78,6 @@ Source repository: <https://github.com/fqscfqj/dsh-gpt-exec-bridge>.
 
 npm package: <https://www.npmjs.com/package/dsh-gpt-exec-bridge>.
 
-Install through the DSH plugin manager using the package name `dsh-gpt-exec-bridge`, or pin the version with `dsh-gpt-exec-bridge@0.1.0`.
+Install through the DSH plugin manager using the package name `dsh-gpt-exec-bridge`, or pin the version with `dsh-gpt-exec-bridge@0.1.1`.
 
 This is a DSH plugin, not a standalone command-line program.
