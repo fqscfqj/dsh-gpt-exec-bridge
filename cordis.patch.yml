@@ -1,0 +1,24 @@
+- insert:
+    - id: gpt-exec-bridge
+      name: 'dsh-gpt-exec-bridge'
+      config:
+        enabled: true
+        rules:
+          - tool: list_subagent_models
+            fields:
+              - provider
+              - model
+          - tool: subagent
+            fields:
+              - provider
+              - model
+              - reasoning_effort
+              - agent_preset
+              - cwd
+          - tool: subagent_fork
+            fields:
+              - provider
+              - model
+              - reasoning_effort
+              - agent_preset
+              - cwd

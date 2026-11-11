@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "GPT 工具参数桥接",
+    "description": "把空的 provider 与 model 字符串当作未填写，让子代理模型查询与委派在 GPT 系列模型下依然可用。"
+  }
+}

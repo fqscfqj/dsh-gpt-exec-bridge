@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "GPT tool argument bridge",
+    "description": "Treats empty provider and model strings as omitted so subagent route discovery and delegation still work with GPT-style models."
+  }
+}

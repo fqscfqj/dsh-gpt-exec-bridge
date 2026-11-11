@@ -1,0 +1,53 @@
+{
+  "name": "dsh-gpt-exec-bridge",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Treats empty provider/model strings as omitted so subagent route discovery and delegation keep working",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fqscfqj/dsh-gpt-exec-bridge.git"
+  },
+  "homepage": "https://github.com/fqscfqj/dsh-gpt-exec-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/fqscfqj/dsh-gpt-exec-bridge/issues"
+  },
+  "keywords": ["deepseek-harness", "dsh", "gpt", "subagent", "plugin"],
+  "main": "./index.js",
+  "icon": "./icon.svg",
+  "exports": {
+    ".": "./index.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "check": "node --check index.js",
+    "test": "node --test",
+    "prepack": "npm run check && npm test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "~4.1.0",
+    "yaml": "^2.8.1"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

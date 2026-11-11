@@ -1,0 +1,9 @@
+node_modules/
+*.tgz
+coverage/
+.env
+.env.*
+.npmrc
+npm-debug.log*
+.DS_Store
+Thumbs.db
