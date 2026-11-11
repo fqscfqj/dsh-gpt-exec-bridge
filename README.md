@@ -1,5 +1,7 @@
 # dsh-gpt-exec-bridge
 
+简体中文 | [English](https://github.com/fqscfqj/dsh-gpt-exec-bridge/blob/main/README.en.md)
+
 将子代理路由工具中空的 `provider` / `model` 参数视为“未提供”，让 GPT 系列模型仍能正常查询和选择子代理模型。
 
 ## 解决的问题
