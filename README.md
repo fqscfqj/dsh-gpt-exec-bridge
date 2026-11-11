@@ -77,6 +77,8 @@ CI 在 Windows 和 Linux 上，分别使用 Node.js 20、22、24 执行检查。
 
 源码仓库：<https://github.com/fqscfqj/dsh-gpt-exec-bridge>。
 
-`0.1.0` 版本已完成公开 npm 包的发布准备，但尚未发布到 npm。发布后，可通过 DSH 插件管理器使用包名 `dsh-gpt-exec-bridge` 安装。
+npm 包：<https://www.npmjs.com/package/dsh-gpt-exec-bridge>。
+
+可通过 DSH 插件管理器使用包名 `dsh-gpt-exec-bridge` 安装，或指定版本 `dsh-gpt-exec-bridge@0.1.0`。
 
 这是一个 DSH 插件，不是独立的命令行程序。
