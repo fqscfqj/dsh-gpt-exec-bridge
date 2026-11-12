@@ -1,8 +1,8 @@
 {
   "name": "dsh-gpt-exec-bridge",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "type": "module",
-  "description": "Treats empty provider/model strings as omitted so subagent route discovery and delegation keep working",
+  "description": "Treats empty strings and false flags as omitted so optional tool arguments stop failing validation",
   "license": "MIT",
   "repository": {
     "type": "git",

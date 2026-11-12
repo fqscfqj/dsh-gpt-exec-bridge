@@ -351,3 +351,72 @@ test('unusable definitions can become executable later', (t) => {
   h.dispose()
   assert.equal(tool.execute, undefined)
 })
+
+test('team_task_list: drops the false unowned flag beside a real owner filter', (t) => {
+  const tool = definition()
+  harness(t, [['team_task_list', tool]])
+  assert.deepEqual(
+    tool.execute({ cursor: 0, limit: 20, owner: 'font-roundtrip', ready: true, status: 'pending', unowned: false }),
+    { cursor: 0, limit: 20, owner: 'font-roundtrip', ready: true, status: 'pending' },
+  )
+})
+
+test('team_task_list: keeps unowned true and drops a blank owner', (t) => {
+  const tool = definition()
+  harness(t, [['team_task_list', tool]])
+  assert.deepEqual(tool.execute({ owner: '', unowned: true }), { unowned: true })
+  assert.deepEqual(tool.execute({ owner: '  ', unowned: false }), { unowned: false })
+})
+
+test('team_task_list: keeps a genuine owner and unowned contradiction for the tool', (t) => {
+  const tool = definition()
+  harness(t, [['team_task_list', tool]])
+  const args = { owner: 'lead', unowned: true }
+  assert.equal(tool.execute(args), args)
+})
+
+test('team_task_list: keeps a lone false flag because it is a real filter', (t) => {
+  const tool = definition()
+  harness(t, [['team_task_list', tool]])
+  assert.deepEqual(tool.execute({ unowned: false }), { unowned: false })
+})
+
+test('team_task_update: drops blank optional text and owner', (t) => {
+  const tool = definition()
+  harness(t, [['team_task_update', tool]])
+  assert.deepEqual(
+    tool.execute({ task_id: 'task-1', expected_revision: 2, action: 'edit', subject: '', description: ' ', owner: '' }),
+    { task_id: 'task-1', expected_revision: 2, action: 'edit' },
+  )
+})
+
+test('team_task_update: keeps real optional text and owner', (t) => {
+  const tool = definition()
+  harness(t, [['team_task_update', tool]])
+  const args = { task_id: 'task-1', expected_revision: 2, action: 'reassign', owner: 'lead' }
+  assert.equal(tool.execute(args), args)
+})
+
+test('exclusive groups merge across owners and release with them', (t) => {
+  const tool = definition()
+  const a = harness(t, [['custom', tool]], { rules: [{ tool: 'custom', fields: ['owner'], exclusive: [['owner', 'unowned']] }] })
+  const b = harness(t, [['custom', tool]], { rules: [{ tool: 'custom', fields: ['unowned'] }] })
+  assert.deepEqual(tool.execute({ owner: 'lead', unowned: false }), { owner: 'lead' })
+  a.dispose()
+  assert.deepEqual(tool.execute({ owner: 'lead', unowned: false }), { owner: 'lead', unowned: false })
+  b.dispose()
+})
+
+test('malformed exclusive groups are ignored instead of aborting activation', (t) => {
+  const tool = definition()
+  harness(t, [['custom', tool]], { rules: [{ tool: 'custom', fields: ['owner', 'unowned'], exclusive: [null, 'owner', ['owner'], ['owner', 'owner'], [1, 'unowned']] }] })
+  assert.deepEqual(tool.execute({ owner: 'lead', unowned: false }), { owner: 'lead', unowned: false })
+})
+
+test('exclusive defaults do not mutate the caller arguments', (t) => {
+  const tool = definition()
+  harness(t, [['team_task_list', tool]])
+  const args = Object.freeze({ owner: 'lead', unowned: false })
+  assert.deepEqual(tool.execute(args), { owner: 'lead' })
+  assert.equal(args.unowned, false)
+})

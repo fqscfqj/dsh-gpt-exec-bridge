@@ -50,3 +50,35 @@ test('real Cordis injection waits for tools and cleans repairs when tools disapp
   assert.equal(tool.execute, original)
   assert.equal(tool.parameters.properties.provider.description, 'Provider')
 })
+
+test('real Cordis context repairs the reported team_task_list call', async (t) => {
+  const ctx = new Context()
+  t.after(() => ctx.fiber.dispose())
+  const tools = new Map()
+  ctx.provide('tools', { get: (name) => tools.get(name) })
+  const fiber = ctx.plugin(bridge)
+  await fiber.await()
+
+  // Mirrors the installed tool's own guard: both filters present is rejected.
+  const tool = {
+    parameters: { type: 'object', properties: { owner: { type: 'string' }, unowned: { type: 'boolean' } } },
+    execute: (args) => {
+      if (args.owner !== undefined && args.unowned !== undefined) {
+        throw new Error('owner and unowned filters cannot be combined')
+      }
+      return args
+    },
+  }
+  tools.set('team_task_list', tool)
+  ctx.emit('tools/change')
+
+  const reported = { cursor: 0, limit: 20, owner: 'font-roundtrip', ready: true, status: 'pending', unowned: false }
+  assert.deepEqual(tool.execute(reported), {
+    cursor: 0,
+    limit: 20,
+    owner: 'font-roundtrip',
+    ready: true,
+    status: 'pending',
+  })
+  assert.throws(() => tool.execute({ owner: 'lead', unowned: true }), /cannot be combined/)
+})

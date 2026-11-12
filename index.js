@@ -1,19 +1,22 @@
 /**
- * Model-argument bridge for optional LLM route fields.
+ * Model-argument bridge for optional tool fields.
  *
- * Some models — notably GPT-series ones — fill every declared string parameter
- * with `""` instead of omitting it. The subagent route tools declare
- * `provider`/`model` as optional strings, so those calls arrive with empty
- * values and fail the tools' own non-empty checks. The model then sees no route
- * at all and cannot discover or select a child model.
+ * Some models — notably GPT-series ones — fill every declared parameter with a
+ * zero value instead of omitting it: `""` for strings and `false` for boolean
+ * flags. Optional tool fields then arrive as if the model had chosen them, so
+ * tools that reject blank values or mutually exclusive filters fail, and the
+ * model sees no result at all.
  *
- * This plugin treats "empty" as "omitted" at the tool boundary:
+ * This plugin treats "zero" as "omitted" at the tool boundary:
  *
  * - it wraps `execute` on the affected tool definitions, dropping an empty or
  *   whitespace-only value for the configured fields before the tool sees it;
  * - when a route pair loses its `provider`, the dependent `model` and
  *   `reasoning_effort` are dropped too, so a half-filled route degrades to
- *   "inherit the parent" instead of failing a pairing check.
+ *   "inherit the parent" instead of failing a pairing check;
+ * - inside a configured exclusive group, a `false` flag is dropped when a more
+ *   specific member of the same group is set, so `{ owner, unowned: false }`
+ *   reads as `{ owner }` instead of failing the "cannot be combined" check.
  *
  * Parameter descriptions and model-facing prompts are left unchanged.
  *
@@ -32,12 +35,33 @@ export const inject = ['tools']
 /** Route fields that only make sense together with `provider`. */
 const ROUTE_DEPENDENTS = ['model', 'reasoning_effort']
 
-/** Tools and optional route fields repaired out of the box. */
+/** Tools and optional fields repaired out of the box. */
 const DEFAULT_RULES = [
   { tool: 'list_subagent_models', fields: ['provider', 'model'] },
   { tool: 'subagent', fields: ['provider', 'model', 'reasoning_effort', 'agent_preset', 'cwd'] },
   { tool: 'subagent_fork', fields: ['provider', 'model', 'reasoning_effort', 'agent_preset', 'cwd'] },
+  { tool: 'team_task_list', fields: ['status', 'owner', 'unowned'], exclusive: [['owner', 'unowned']] },
+  { tool: 'team_task_update', fields: ['subject', 'description', 'owner'] },
 ]
+
+/**
+ * Validate one rule's exclusive groups.
+ * A malformed group is skipped rather than aborting activation: a stale field
+ * name must not take the whole profile down.
+ * @param raw - the rule's `exclusive` value, however malformed.
+ * @returns the resolved groups, each with at least two distinct members.
+ */
+function resolveGroups(raw) {
+  if (!Array.isArray(raw)) return []
+  const groups = []
+  for (const group of raw) {
+    if (!Array.isArray(group)) continue
+    const members = [...new Set(group.filter((field) => typeof field === 'string' && field.length > 0))]
+    if (members.length < 2) continue
+    groups.push(members)
+  }
+  return groups
+}
 
 /**
  * Validate the row's config into the shape the bridge uses.
@@ -59,7 +83,7 @@ function resolveSettings(raw) {
       ? rule.fields.filter((field) => typeof field === 'string' && field.length > 0)
       : []
     if (fields.length === 0) continue
-    resolved.push({ tool, fields })
+    resolved.push({ tool, fields, groups: resolveGroups(rule.exclusive) })
   }
   return { enabled, rules: resolved }
 }
@@ -104,20 +128,72 @@ function withoutOmittedFields(args, fields) {
   return next ?? args
 }
 
+/**
+ * Drop a `false` flag that only restates "no filter" beside a specific sibling.
+ *
+ * `owner` and `unowned` are mutually exclusive, so a model that fills every
+ * declared parameter sends both and the tool rejects the call. When a sibling
+ * in the same group carries a real choice, a `false` flag is the model's
+ * zero-value fill and is dropped. Two real choices are left alone so the tool
+ * still reports a genuine contradiction instead of the bridge guessing.
+ * @param args - arguments after omitted fields were removed.
+ * @param groups - mutually exclusive field groups the rule owns.
+ * @returns the original arguments when nothing changed, otherwise a cleaned copy.
+ */
+function withoutExclusiveDefaults(args, groups) {
+  if (args === null || typeof args !== 'object' || Array.isArray(args)) return args
+  let next
+  for (const group of groups) {
+    const chosen = group.some(
+      (field) => Object.hasOwn(args, field) && !isOmitted(args[field]) && args[field] !== false,
+    )
+    if (!chosen) continue
+    for (const field of group) {
+      if (!Object.hasOwn(args, field) || args[field] !== false) continue
+      next ??= { ...args }
+      delete next[field]
+    }
+  }
+  return next ?? args
+}
+
+/**
+ * Apply every repair one definition's owners configured.
+ * @param args - arguments as parsed from the model's tool call.
+ * @param state - the shared repair state holding the merged fields and groups.
+ * @returns the original arguments when nothing changed, otherwise a cleaned copy.
+ */
+function cleanArguments(args, state) {
+  return withoutExclusiveDefaults(withoutOmittedFields(args, state.fields), state.groups)
+}
+
+/**
+ * Merge the exclusive groups of every owner, keeping the first spelling.
+ * @param rules - the rule objects currently owning one definition.
+ * @returns the distinct groups.
+ */
+function mergeGroups(rules) {
+  const merged = new Map()
+  for (const rule of rules) for (const group of rule.groups) merged.set(group.join('\u0000'), group)
+  return [...merged.values()]
+}
+
 /** Shared ownership keeps concurrent bridge instances from undoing each other. */
 const definitionRepairs = new WeakMap()
 
 function refreshRepair(state) {
   const { definition } = state
-  state.fields = [...new Set([...state.owners.values()].flat())]
+  const owned = [...state.owners.values()]
+  state.fields = [...new Set(owned.flatMap((rule) => rule.fields))]
+  state.groups = mergeGroups(owned)
   if (definition.execute !== state.layer?.wrapper) {
     if (state.layer) state.layer.active = false
     state.layer = undefined
     const execute = definition.execute
     if (typeof execute === 'function') {
       const layer = { execute, active: true, wrapper: undefined }
-      layer.wrapper = function executeWithoutOmittedFields(...args) {
-        if (layer.active && args.length > 0) args[0] = withoutOmittedFields(args[0], state.fields)
+      layer.wrapper = function executeWithoutZeroValues(...args) {
+        if (layer.active && args.length > 0) args[0] = cleanArguments(args[0], state)
         return Reflect.apply(execute, this, args)
       }
       state.layer = layer
@@ -127,19 +203,19 @@ function refreshRepair(state) {
 }
 
 /** Return a lease on a shared repair, refreshed after registry changes. */
-function repairDefinition(definition, fields) {
+function repairDefinition(definition, rule) {
   let state = definitionRepairs.get(definition)
   if (!state) {
     if (typeof definition.execute !== 'function') return undefined
-    state = { definition, owners: new Map(), fields: [], layer: undefined }
+    state = { definition, owners: new Map(), fields: [], groups: [], layer: undefined }
     definitionRepairs.set(definition, state)
   }
   const owner = {}
-  state.owners.set(owner, fields)
+  state.owners.set(owner, rule)
   refreshRepair(state)
   return {
-    refresh: (nextFields) => {
-      state.owners.set(owner, nextFields)
+    refresh: (nextRule) => {
+      state.owners.set(owner, nextRule)
       refreshRepair(state)
     },
     dispose: () => {
@@ -153,6 +229,7 @@ function repairDefinition(definition, fields) {
         if (definition.execute === state.layer.wrapper) definition.execute = state.layer.execute
       }
       state.fields = []
+      state.groups = []
       definitionRepairs.delete(definition)
     },
   }
@@ -167,10 +244,14 @@ export function apply(ctx, config) {
   const settings = resolveSettings(config)
   if (!settings.enabled) return
 
-  /** tool name -> the union of configured fields for that tool. */
+  /** tool name -> the union of configured fields and groups for that tool. */
   const rules = new Map()
-  for (const { tool, fields } of settings.rules) {
-    rules.set(tool, [...new Set([...(rules.get(tool) ?? []), ...fields])])
+  for (const { tool, fields, groups } of settings.rules) {
+    const existing = rules.get(tool) ?? { fields: [], groups: [] }
+    rules.set(tool, {
+      fields: [...new Set([...existing.fields, ...fields])],
+      groups: [...existing.groups, ...groups],
+    })
   }
   const repairs = new Map()
 
@@ -200,22 +281,25 @@ export function apply(ctx, config) {
    * @param extraAgents - agents to include beyond the live registry.
    */
   const reconcile = (extraAgents = []) => {
-    const reachableFields = new Map()
-    for (const [toolName, fields] of rules) {
+    const reachableRules = new Map()
+    for (const [toolName, rule] of rules) {
       for (const definition of reachable(toolName, extraAgents)) {
-        reachableFields.set(definition, [...new Set([...(reachableFields.get(definition) ?? []), ...fields])])
+        const merged = reachableRules.get(definition) ?? { fields: [], groups: [] }
+        merged.fields = [...new Set([...merged.fields, ...rule.fields])]
+        merged.groups = [...merged.groups, ...rule.groups]
+        reachableRules.set(definition, merged)
       }
     }
     for (const [definition, repair] of repairs) {
-      if (reachableFields.has(definition)) continue
+      if (reachableRules.has(definition)) continue
       repair.dispose()
       repairs.delete(definition)
     }
-    for (const [definition, fields] of reachableFields) {
+    for (const [definition, rule] of reachableRules) {
       const repair = repairs.get(definition)
-      if (repair) repair.refresh(fields)
+      if (repair) repair.refresh(rule)
       else {
-        const added = repairDefinition(definition, fields)
+        const added = repairDefinition(definition, rule)
         if (added) repairs.set(definition, added)
       }
     }

@@ -22,3 +22,16 @@
               - reasoning_effort
               - agent_preset
               - cwd
+          - tool: team_task_list
+            fields:
+              - status
+              - owner
+              - unowned
+            exclusive:
+              - - owner
+                - unowned
+          - tool: team_task_update
+            fields:
+              - subject
+              - description
+              - owner
